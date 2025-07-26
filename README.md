@@ -4,6 +4,10 @@ A Model Context Protocol (MCP) server that provides tools to interact with the [
 
 Dash 8 is required, which is currently in beta. You can download Dash 8 at https://blog.kapeli.com/dash-8.
 
+<a href="https://glama.ai/mcp/servers/@Kapeli/dash-mcp-server">
+  <img width="380" height="200" src="https://glama.ai/mcp/servers/@Kapeli/dash-mcp-server/badge" alt="Dash Server MCP server" />
+</a>
+
 ## Overview
 
 The Dash MCP server provides tools for accessing and searching documentation directly from Dash, the macOS documentation browser. MCP clients can:
