@@ -66,3 +66,25 @@ brew install uv
 ```bash
 claude mcp add dash-api -- uvx --from "git+https://github.com/Kapeli/dash-mcp-server.git" "dash-mcp-server"
 ```
+
+#### Running directly
+
+```bash
+uv sync
+```
+
+```json
+{
+  "mcpServers": {
+    "dash-api": {
+      "command": "/opt/homebrew/bin/uv",
+      "args": [
+        "--directory",
+        "/Users/guochunzhong/git/oss/dash-mcp-server",
+        "run",
+        "src/dash_mcp_server/server.py"
+      ]
+    }
+  }
+}
+```
