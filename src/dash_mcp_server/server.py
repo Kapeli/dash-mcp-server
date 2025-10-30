@@ -35,7 +35,7 @@ async def working_api_base_url(ctx: Context) -> Optional[str]:
         await ctx.info("The Dash API Server is not enabled. Attempting to enable it automatically...")
         try:
             subprocess.run(
-                ["defaults", "write", "com.kapeli.dashdoc", "DHAPIServerEnabled", "YES"],
+                ["defaults", "write", "com.kapeli.dash-setapp", "DHAPIServerEnabled", "YES"],
                 check=True,
                 timeout=10
             )
@@ -99,7 +99,7 @@ async def ensure_dash_running(ctx: Context) -> bool:
         try:
             # Launch Dash using the bundle identifier
             subprocess.run(
-                ["open", "-g", "-j", "-b", "com.kapeli.dashdoc"],
+                ["open", "-g", "-j", "-b", "com.kapeli.dash-setapp"],
                 check=True,
                 timeout=10
             )
@@ -179,7 +179,7 @@ async def list_installed_docsets(ctx: Context) -> DocsetResults:
     try:
         base_url = await working_api_base_url(ctx)
         if base_url is None:
-            return DocsetResults(error="Failed to connect to Dash API Server. Please ensure Dash is running and the API server is enabled (Settings > Integration, or run open -b com.kapeli.dashdoc, followed by defaults write com.kapeli.dashdoc DHAPIServerEnabled YES).")
+            return DocsetResults(error="Failed to connect to Dash API Server. Please ensure Dash is running and the API server is enabled (Settings > Integration, or run open -b com.kapeli.dash-setapp, followed by defaults write com.kapeli.dash-setapp DHAPIServerEnabled YES).")
         await ctx.debug("Fetching installed docsets from Dash API")
         
         with httpx.Client(timeout=30.0) as client:
@@ -263,7 +263,7 @@ async def search_documentation(
     try:
         base_url = await working_api_base_url(ctx)
         if base_url is None:
-            return SearchResults(error="Failed to connect to Dash API Server. Please ensure Dash is running and the API server is enabled (Settings > Integration, or run open -b com.kapeli.dashdoc, followed by defaults write com.kapeli.dashdoc DHAPIServerEnabled YES).")
+            return SearchResults(error="Failed to connect to Dash API Server. Please ensure Dash is running and the API server is enabled (Settings > Integration, or run open -b com.kapeli.dash-setapp, followed by defaults write com.kapeli.dash-setapp DHAPIServerEnabled YES).")
         
         params = {
             "query": query,
@@ -330,7 +330,7 @@ async def search_documentation(
                 return SearchResults(error="No valid docsets found for search. Either provide valid docset identifiers from list_installed_docsets, or set search_snippets=true to search snippets only.")
             else:
                 await ctx.error(f"Bad request: {error_text}")
-                return SearchResults(error=f"Bad request: {error_text}. Please ensure Dash is running and the API server is enabled (Settings > Integration, or run open -b com.kapeli.dashdoc, followed by defaults write com.kapeli.dashdoc DHAPIServerEnabled YES).")
+                return SearchResults(error=f"Bad request: {error_text}. Please ensure Dash is running and the API server is enabled (Settings > Integration, or run open -b com.kapeli.dash-setapp, followed by defaults write com.kapeli.dash-setapp DHAPIServerEnabled YES).")
         elif e.response.status_code == 403:
             error_text = e.response.text
             if "API access blocked due to Dash trial expiration" in error_text:
@@ -338,12 +338,12 @@ async def search_documentation(
                 return SearchResults(error="Your Dash trial has expired. Purchase Dash at https://kapeli.com/dash to continue using the API. During trial expiration, API access is blocked.")
             else:
                 await ctx.error(f"Forbidden: {error_text}")
-                return SearchResults(error=f"Forbidden: {error_text}. Please ensure Dash is running and the API server is enabled (Settings > Integration, or run open -b com.kapeli.dashdoc, followed by defaults write com.kapeli.dashdoc DHAPIServerEnabled YES).")
+                return SearchResults(error=f"Forbidden: {error_text}. Please ensure Dash is running and the API server is enabled (Settings > Integration, or run open -b com.kapeli.dash-setapp, followed by defaults write com.kapeli.dash-setapp DHAPIServerEnabled YES).")
         await ctx.error(f"HTTP error: {e}")
-        return SearchResults(error=f"HTTP error: {e}. Please ensure Dash is running and the API server is enabled (Settings > Integration, or run open -b com.kapeli.dashdoc, followed by defaults write com.kapeli.dashdoc DHAPIServerEnabled YES).")
+        return SearchResults(error=f"HTTP error: {e}. Please ensure Dash is running and the API server is enabled (Settings > Integration, or run open -b com.kapeli.dash-setapp, followed by defaults write com.kapeli.dash-setapp DHAPIServerEnabled YES).")
     except Exception as e:
         await ctx.error(f"Search failed: {e}")
-        return SearchResults(error=f"Search failed: {e}. Please ensure Dash is running and the API server is enabled (Settings > Integration, or run open -b com.kapeli.dashdoc, followed by defaults write com.kapeli.dashdoc DHAPIServerEnabled YES).")
+        return SearchResults(error=f"Search failed: {e}. Please ensure Dash is running and the API server is enabled (Settings > Integration, or run open -b com.kapeli.dash-setapp, followed by defaults write com.kapeli.dash-setapp DHAPIServerEnabled YES).")
 
 
 @mcp.tool()
