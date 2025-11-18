@@ -2,6 +2,9 @@
 
 This guide provides exact, up-to-date steps for configuring the Dash MCP Server with Claude Code CLI and Codex CLI.
 
+**Repository:** https://github.com/atdrendel/dash-mcp-server
+**Branch with fetch_documentation_content:** `get-docs`
+
 ---
 
 ## **Claude Code CLI**
@@ -9,24 +12,24 @@ This guide provides exact, up-to-date steps for configuring the Dash MCP Server 
 ### Quick Method (Recommended)
 
 ```bash
-claude mcp add --transport stdio dash-api -- uvx --from "git+https://github.com/Kapeli/dash-mcp-server.git" "dash-mcp-server"
+claude mcp add --transport stdio dash-api -- uvx --from "git+https://github.com/atdrendel/dash-mcp-server.git@get-docs" "dash-mcp-server"
 ```
 
 ### With Scope Options
 
 **Local scope** (default - only in current project):
 ```bash
-claude mcp add --transport stdio dash-api -- uvx --from "git+https://github.com/Kapeli/dash-mcp-server.git" "dash-mcp-server"
+claude mcp add --transport stdio dash-api -- uvx --from "git+https://github.com/atdrendel/dash-mcp-server.git@get-docs" "dash-mcp-server"
 ```
 
 **User scope** (available across all projects):
 ```bash
-claude mcp add --transport stdio dash-api --scope user -- uvx --from "git+https://github.com/Kapeli/dash-mcp-server.git" "dash-mcp-server"
+claude mcp add --transport stdio dash-api --scope user -- uvx --from "git+https://github.com/atdrendel/dash-mcp-server.git@get-docs" "dash-mcp-server"
 ```
 
 **Project scope** (shared with team via `.mcp.json`):
 ```bash
-claude mcp add --transport stdio dash-api --scope project -- uvx --from "git+https://github.com/Kapeli/dash-mcp-server.git" "dash-mcp-server"
+claude mcp add --transport stdio dash-api --scope project -- uvx --from "git+https://github.com/atdrendel/dash-mcp-server.git@get-docs" "dash-mcp-server"
 ```
 
 ### Verification
@@ -51,7 +54,7 @@ Edit `~/Library/Application Support/Claude/claude_desktop_config.json`:
       "command": "uvx",
       "args": [
         "--from",
-        "git+https://github.com/Kapeli/dash-mcp-server.git",
+        "git+https://github.com/atdrendel/dash-mcp-server.git@get-docs",
         "dash-mcp-server"
       ]
     }
@@ -68,7 +71,7 @@ Then restart Claude Code.
 ### Method 1: Using CLI Command
 
 ```bash
-codex mcp add dash-api -- uvx --from "git+https://github.com/Kapeli/dash-mcp-server.git" "dash-mcp-server"
+codex mcp add dash-api -- uvx --from "git+https://github.com/atdrendel/dash-mcp-server.git@get-docs" "dash-mcp-server"
 ```
 
 ### Method 2: Edit Config File Directly (Recommended)
@@ -78,7 +81,7 @@ Edit `~/.codex/config.toml`:
 ```toml
 [mcp_servers.dash-api]
 command = "uvx"
-args = ["--from", "git+https://github.com/Kapeli/dash-mcp-server.git", "dash-mcp-server"]
+args = ["--from", "git+https://github.com/atdrendel/dash-mcp-server.git@get-docs", "dash-mcp-server"]
 ```
 
 **Important:**
@@ -90,7 +93,7 @@ args = ["--from", "git+https://github.com/Kapeli/dash-mcp-server.git", "dash-mcp
 ```toml
 [mcp_servers.dash-api]
 command = "uvx"
-args = ["--from", "git+https://github.com/Kapeli/dash-mcp-server.git", "dash-mcp-server"]
+args = ["--from", "git+https://github.com/atdrendel/dash-mcp-server.git@get-docs", "dash-mcp-server"]
 env = { CUSTOM_VAR = "value" }
 ```
 
@@ -104,6 +107,107 @@ env = { CUSTOM_VAR = "value" }
 ### Verification
 
 Restart Codex and check that the server is loaded. The MCP server should be available in your next session.
+
+---
+
+## **Testing Locally from Working Directory**
+
+If you're developing or testing changes to the MCP server locally, you can point to your local working directory instead of GitHub:
+
+### Claude Code CLI
+
+```bash
+# From this project directory
+claude mcp add --transport stdio dash-api -- uv --directory /Users/atdrendel/atdrendel/dash-mcp-server run dash-mcp-server
+```
+
+Or edit the config file directly:
+
+```json
+{
+  "mcpServers": {
+    "dash-api": {
+      "command": "uv",
+      "args": [
+        "--directory",
+        "/Users/atdrendel/atdrendel/dash-mcp-server",
+        "run",
+        "dash-mcp-server"
+      ]
+    }
+  }
+}
+```
+
+### Codex CLI
+
+Edit `~/.codex/config.toml`:
+
+```toml
+[mcp_servers.dash-api]
+command = "uv"
+args = ["--directory", "/Users/atdrendel/atdrendel/dash-mcp-server", "run", "dash-mcp-server"]
+```
+
+### Manual Testing Without an LLM CLI
+
+**Option 1: MCP Inspector (Recommended)**
+
+```bash
+npx @modelcontextprotocol/inspector uv --directory /Users/atdrendel/atdrendel/dash-mcp-server run dash-mcp-server
+```
+
+This launches a web UI (usually at http://localhost:5173) where you can:
+- Call tools interactively
+- See JSON responses
+- Inspect the full MCP communication
+
+**Option 2: Quick Python Function Test**
+
+```bash
+cd /Users/atdrendel/atdrendel/dash-mcp-server
+source .venv/bin/activate
+
+python3 << 'EOF'
+import asyncio
+import sys
+sys.path.insert(0, 'src')
+
+from dash_mcp_server.server import search_documentation, fetch_documentation_content
+
+class MockContext:
+    async def debug(self, msg): print(f"[DEBUG] {msg}")
+    async def info(self, msg): print(f"[INFO] {msg}")
+    async def warning(self, msg): print(f"[WARN] {msg}")
+    async def error(self, msg): print(f"[ERROR] {msg}")
+
+async def test():
+    ctx = MockContext()
+
+    # Test search
+    print("=== Testing search ===")
+    results = await search_documentation(
+        ctx,
+        query="URLSessionDownloadTask",
+        docset_identifiers="dainoewq-swift,dainoewq-objc"
+    )
+
+    print(f"Found {len(results.results)} results")
+    if results.results:
+        first = results.results[0]
+        print(f"First result: {first.name} ({first.type})")
+        print(f"Load URL: {first.load_url}\n")
+
+        # Test fetch content
+        print("=== Testing fetch content ===")
+        content = await fetch_documentation_content(ctx, first.load_url)
+        print(f"Title: {content.title}")
+        print(f"Content length: {len(content.content)} chars")
+        print(f"First 500 chars:\n{content.content[:500]}")
+
+asyncio.run(test())
+EOF
+```
 
 ---
 
