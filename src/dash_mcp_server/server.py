@@ -158,6 +158,14 @@ class SearchResults(BaseModel):
     error: Optional[str] = Field(description="Error message if there was an issue", default=None)
 
 
+class DocumentationContent(BaseModel):
+    """Full content from a documentation page."""
+    load_url: str = Field(description="The URL that was fetched")
+    title: str = Field(description="Page title")
+    content: str = Field(description="Full documentation content in Markdown format")
+    error: Optional[str] = Field(description="Error message if there was an issue", default=None)
+
+
 def estimate_tokens(obj) -> int:
     """Estimate token count for a serialized object. Rough approximation: 1 token ≈ 4 characters."""
     if isinstance(obj, str):
@@ -386,6 +394,106 @@ async def enable_docset_fts(ctx: Context, identifier: str) -> bool:
         await ctx.error(f"Failed to enable FTS: {e}")
         return False
     return True
+
+
+@mcp.tool()
+async def fetch_documentation_content(ctx: Context, load_url: str) -> DocumentationContent:
+    """
+    Fetch the full documentation content for a specific entry.
+
+    This tool retrieves the complete documentation page and converts it to Markdown format,
+    making it easy for AI models to read and understand. Unlike search results which only
+    provide metadata, this returns the actual documentation text including descriptions,
+    parameters, code examples, and detailed explanations.
+
+    Args:
+        load_url: The load_url from a search result (obtained via search_documentation)
+
+    Returns:
+        DocumentationContent with the full page converted to Markdown.
+        No content limits - returns the complete documentation.
+
+    Example workflow:
+        1. Use search_documentation to find relevant entries
+        2. Use fetch_documentation_content with a load_url to get full details
+    """
+    if not load_url.strip():
+        await ctx.error("load_url cannot be empty")
+        return DocumentationContent(
+            load_url=load_url,
+            title="Error",
+            content="",
+            error="load_url cannot be empty"
+        )
+
+    try:
+        await ctx.debug(f"Fetching documentation content from: {load_url}")
+
+        # Fetch the HTML content
+        with httpx.Client(timeout=30.0) as client:
+            response = client.get(load_url)
+            response.raise_for_status()
+            html_content = response.text
+
+        await ctx.debug(f"Successfully fetched {len(html_content)} bytes of HTML")
+
+        # Convert HTML to Markdown
+        from markdownify import markdownify as md
+
+        # Import BeautifulSoup to clean the HTML first
+        from bs4 import BeautifulSoup
+
+        # Parse HTML
+        soup = BeautifulSoup(html_content, 'html.parser')
+
+        # Extract title
+        title_elem = soup.find('title')
+        title = title_elem.get_text(strip=True) if title_elem else "Documentation"
+
+        # Remove unwanted elements
+        for element in soup.find_all(['script', 'style', 'nav', 'header']):
+            element.decompose()
+
+        # Convert to markdown
+        # Use strip=False to preserve formatting, heading_style="ATX" for # headings
+        markdown_content = md(str(soup), heading_style="ATX", bullets="-")
+
+        # Clean up excessive whitespace while preserving intentional spacing
+        import re
+        # Replace 3+ newlines with just 2 (preserve paragraph breaks)
+        markdown_content = re.sub(r'\n{3,}', '\n\n', markdown_content)
+        # Clean up trailing whitespace on lines
+        markdown_content = re.sub(r'[ \t]+$', '', markdown_content, flags=re.MULTILINE)
+
+        markdown_content = markdown_content.strip()
+
+        await ctx.info(f"Successfully converted to Markdown: {len(markdown_content)} characters")
+
+        return DocumentationContent(
+            load_url=load_url,
+            title=title,
+            content=markdown_content
+        )
+
+    except httpx.HTTPStatusError as e:
+        error_msg = f"HTTP error {e.response.status_code}: {e.response.reason_phrase}"
+        await ctx.error(error_msg)
+        return DocumentationContent(
+            load_url=load_url,
+            title="Error",
+            content="",
+            error=error_msg
+        )
+    except Exception as e:
+        error_msg = f"Failed to fetch content: {str(e)}"
+        await ctx.error(error_msg)
+        return DocumentationContent(
+            load_url=load_url,
+            title="Error",
+            content="",
+            error=error_msg
+        )
+
 
 def main():
     mcp.run()
