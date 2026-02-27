@@ -69,3 +69,16 @@ class TestExtractSection:
         """
         result = extract_section(html, "method-i-foo")
         assert "Foo description" in result
+
+    def test_walks_up_falls_back_when_no_block_parent(self):
+        html = """
+        <html><body>
+          <nav><a href="/">Home</a></nav>
+          <a id="orphan-anchor"></a>
+          <p>Content with no block wrapper.</p>
+        </body></html>
+        """
+        result = extract_section(html, "orphan-anchor")
+        # No suitable block parent, so falls back to nav-stripping
+        assert "<nav>" not in result
+        assert "Content with no block wrapper" in result

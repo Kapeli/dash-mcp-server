@@ -244,7 +244,8 @@ def parse_fragment(load_url: str) -> Optional[str]:
     if not fragment:
         return None
     if fragment.startswith("//dash_ref_"):
-        return fragment[len("//dash_ref_"):].split("/")[0]
+        anchor = fragment[len("//dash_ref_"):].split("/")[0]
+        return anchor if anchor else None
     return fragment
 
 
@@ -268,8 +269,10 @@ def extract_section(html: str, anchor_id: Optional[str]) -> str:
                     if parent.name in ("div", "section", "article", "li"):
                         element = parent
                         break
-            return str(element)
-        # Anchor not found — fall through to nav stripping
+            # Return if we found a substantial element (not still a thin anchor)
+            if element.name not in ("a", "span"):
+                return str(element)
+        # Anchor not found, or thin element with no suitable parent — fall through
 
     # Strip navigation and sidebar noise
     for tag in soup.find_all(["nav", "aside", "header", "footer"]):
