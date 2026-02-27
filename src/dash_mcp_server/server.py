@@ -1,9 +1,11 @@
 from typing import Optional
 import html2text
 import httpx
+import re
 import subprocess
 import json
 from pathlib import Path
+from bs4 import BeautifulSoup
 from mcp.server.fastmcp import FastMCP
 from mcp.server.fastmcp import Context
 from pydantic import BaseModel, Field
@@ -246,14 +248,37 @@ def parse_fragment(load_url: str) -> Optional[str]:
     return fragment
 
 
-def extract_section(html: str, fragment: Optional[str]) -> str:
-    """Extract a section of HTML content by anchor fragment ID.
+def extract_section(html: str, anchor_id: Optional[str]) -> str:
+    """Extract a specific section from HTML by anchor ID, or strip navigation.
 
-    Given an HTML string and an anchor fragment, returns the HTML content
-    starting from the element with that ID. If no fragment is provided or
-    the anchor is not found, returns the full HTML.
+    With anchor_id: finds the element with that id and returns it. If the element
+    is a thin anchor tag, walks up to the nearest block-level parent.
+    Falls back to nav-stripping if the anchor is not found.
+
+    Without anchor_id: removes nav/sidebar elements and returns the body.
     """
-    raise NotImplementedError("extract_section is not yet implemented")
+    soup = BeautifulSoup(html, "html.parser")
+
+    if anchor_id:
+        element = soup.find(id=anchor_id)
+        if element:
+            # Walk up from thin elements (e.g. <a id="..."> used as anchor)
+            if element.name in ("a", "span"):
+                for parent in element.parents:
+                    if parent.name in ("div", "section", "article", "li"):
+                        element = parent
+                        break
+            return str(element)
+        # Anchor not found — fall through to nav stripping
+
+    # Strip navigation and sidebar noise
+    for tag in soup.find_all(["nav", "aside", "header", "footer"]):
+        tag.decompose()
+    for tag in soup.find_all(class_=re.compile(r"sidebar|navigation|toc|menu", re.I)):
+        tag.decompose()
+
+    body = soup.body
+    return str(body) if body else str(soup)
 
 
 def estimate_tokens(obj) -> int:

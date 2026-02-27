@@ -17,3 +17,55 @@ class TestParseFragment:
     def test_empty_fragment(self):
         url = "http://127.0.0.1:1234/page.html#"
         assert parse_fragment(url) is None
+
+
+class TestExtractSection:
+    FULL_PAGE = """
+    <html><body>
+      <nav><a href="/">Home</a><a href="/docs">Docs</a></nav>
+      <aside class="sidebar"><ul><li>Item</li></ul></aside>
+      <div id="method-i-sort_by">
+        <h2>sort_by</h2>
+        <p>Sorts by the block return value.</p>
+      </div>
+      <div id="method-i-map">
+        <h2>map</h2>
+        <p>Maps elements.</p>
+      </div>
+    </body></html>
+    """
+
+    def test_extracts_anchor_section(self):
+        result = extract_section(self.FULL_PAGE, "method-i-sort_by")
+        assert "sort_by" in result
+        assert "Sorts by the block return value" in result
+        assert "Maps elements" not in result
+
+    def test_strips_nav_when_no_anchor(self):
+        result = extract_section(self.FULL_PAGE, None)
+        assert "<nav>" not in result
+        assert "Home" not in result
+        assert "sort_by" in result
+        assert "Maps elements" in result
+
+    def test_strips_sidebar_when_no_anchor(self):
+        result = extract_section(self.FULL_PAGE, None)
+        assert "sidebar" not in result
+
+    def test_falls_back_to_nav_strip_when_anchor_not_found(self):
+        result = extract_section(self.FULL_PAGE, "nonexistent-anchor")
+        assert "<nav>" not in result
+        assert "sort_by" in result
+
+    def test_walks_up_from_thin_anchor_element(self):
+        html = """
+        <html><body>
+          <div id="method-wrapper">
+            <a id="method-i-foo"></a>
+            <h2>foo</h2>
+            <p>Foo description.</p>
+          </div>
+        </body></html>
+        """
+        result = extract_section(html, "method-i-foo")
+        assert "Foo description" in result
