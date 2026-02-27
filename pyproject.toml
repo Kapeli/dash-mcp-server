@@ -8,6 +8,7 @@ dependencies = [
     "mcp>=1.13.1",
     "pydantic>=2.11.7",
     "httpx>=0.28.1",
+    "html2text>=2024.2.26",
 ]
 
 [build-system]

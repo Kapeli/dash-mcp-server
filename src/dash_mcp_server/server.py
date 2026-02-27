@@ -1,5 +1,5 @@
 from typing import Optional
-from html.parser import HTMLParser
+import html2text
 import httpx
 import subprocess
 import json
@@ -221,93 +221,14 @@ class DocumentationPage(BaseModel):
     )
 
 
-class _HTMLToTextParser(HTMLParser):
-    """Converts HTML to plain text with markdown-style links."""
-
-    _block_tags = {
-        "p",
-        "br",
-        "div",
-        "h1",
-        "h2",
-        "h3",
-        "h4",
-        "h5",
-        "h6",
-        "li",
-        "tr",
-        "blockquote",
-        "pre",
-        "hr",
-        "section",
-        "article",
-        "header",
-        "footer",
-        "nav",
-        "dt",
-        "dd",
-    }
-    _skip_tags = {"script", "style"}
-
-    def __init__(self):
-        super().__init__()
-        self._parts: list[str] = []
-        self._skip_depth = 0
-        self._link_href: Optional[str] = None
-        self._link_text_parts: list[str] = []
-
-    def handle_starttag(self, tag: str, attrs: list[tuple[str, Optional[str]]]):
-        tag = tag.lower()
-        if tag in self._skip_tags:
-            self._skip_depth += 1
-            return
-        if self._skip_depth > 0:
-            return
-        if tag in self._block_tags:
-            self._parts.append("\n")
-        if tag == "a":
-            attr_dict = dict(attrs)
-            self._link_href = attr_dict.get("href")
-            self._link_text_parts = []
-
-    def handle_endtag(self, tag: str):
-        tag = tag.lower()
-        if tag in self._skip_tags:
-            self._skip_depth = max(0, self._skip_depth - 1)
-            return
-        if self._skip_depth > 0:
-            return
-        if tag == "a" and self._link_href is not None:
-            link_text = "".join(self._link_text_parts).strip()
-            if link_text:
-                self._parts.append(f"[{link_text}]({self._link_href})")
-            else:
-                self._parts.append(self._link_href)
-            self._link_href = None
-            self._link_text_parts = []
-
-    def handle_data(self, data: str):
-        if self._skip_depth > 0:
-            return
-        if self._link_href is not None:
-            self._link_text_parts.append(data)
-        else:
-            self._parts.append(data)
-
-    def get_text(self) -> str:
-        import re
-
-        text = "".join(self._parts)
-        text = re.sub(r"[ \t]+", " ", text)
-        text = re.sub(r"\n{3,}", "\n\n", text)
-        return text.strip()
-
-
 def html_to_text(html: str) -> str:
-    """Convert HTML to plain text with markdown-style links."""
-    parser = _HTMLToTextParser()
-    parser.feed(html)
-    return parser.get_text()
+    """Convert HTML to Markdown using html2text."""
+    h = html2text.HTML2Text()
+    h.ignore_links = False
+    h.ignore_images = True
+    h.body_width = 0
+    h.unicode_snob = True
+    return h.handle(html)
 
 
 def estimate_tokens(obj) -> int:
