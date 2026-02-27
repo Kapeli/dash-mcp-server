@@ -585,7 +585,9 @@ async def load_documentation_page(ctx: Context, load_url: str) -> DocumentationP
             response = client.get(load_url)
             response.raise_for_status()
 
-        content = html_to_text(response.text)
+        anchor_id = parse_fragment(load_url)
+        cleaned_html = extract_section(response.text, anchor_id)
+        content = html_to_text(cleaned_html)
         await ctx.info(
             f"Successfully loaded documentation page ({len(content)} characters)"
         )
