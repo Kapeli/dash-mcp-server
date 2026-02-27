@@ -7,6 +7,7 @@ from pathlib import Path
 from mcp.server.fastmcp import FastMCP
 from mcp.server.fastmcp import Context
 from pydantic import BaseModel, Field
+from urllib.parse import urlparse, unquote
 
 mcp = FastMCP("Dash Documentation API")
 
@@ -229,6 +230,30 @@ def html_to_text(html: str) -> str:
     h.body_width = 0
     h.unicode_snob = True
     return h.handle(html)
+
+
+def parse_fragment(load_url: str) -> Optional[str]:
+    """Extract the HTML anchor ID from a Dash load_url fragment.
+
+    Handles Dash-specific format: //dash_ref_{html-id}/Type/Name/Index
+    Falls back to plain #anchor for non-Dash docsets.
+    """
+    fragment = unquote(urlparse(load_url).fragment)
+    if not fragment:
+        return None
+    if fragment.startswith("//dash_ref_"):
+        return fragment[len("//dash_ref_"):].split("/")[0]
+    return fragment
+
+
+def extract_section(html: str, fragment: Optional[str]) -> str:
+    """Extract a section of HTML content by anchor fragment ID.
+
+    Given an HTML string and an anchor fragment, returns the HTML content
+    starting from the element with that ID. If no fragment is provided or
+    the anchor is not found, returns the full HTML.
+    """
+    raise NotImplementedError("extract_section is not yet implemented")
 
 
 def estimate_tokens(obj) -> int:
