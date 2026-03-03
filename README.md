@@ -14,6 +14,7 @@ The Dash MCP server provides tools for accessing and searching documentation dir
 
 - List installed docsets
 - Search across docsets and code snippets
+- Load documentation pages from search results
 - Enable full-text search for specific docsets
 
 ### Notice
@@ -26,7 +27,9 @@ This is a work in progress. Any suggestions are welcome!
    - Lists all installed documentation sets in Dash
 2. **search_documentation**
    - Searches across docsets and snippets
-3. **enable_docset_fts**
+3. **load_documentation_page**
+   - Loads a documentation page from a `load_url` returned by `search_documentation`
+4. **enable_docset_fts**
    - Enables full-text search for a specific docset
 
 ## Requirements
