@@ -1,7 +1,7 @@
 from typing import Optional
 import html2text
 import httpx
-import re
+
 import subprocess
 import json
 from pathlib import Path
@@ -277,8 +277,7 @@ def extract_section(html: str, anchor_id: Optional[str]) -> str:
     # Strip navigation and sidebar noise
     for tag in soup.find_all(["nav", "aside", "header", "footer"]):
         tag.decompose()
-    for tag in soup.find_all(class_=re.compile(r"sidebar|navigation|toc|menu", re.I)):
-        tag.decompose()
+
 
     body = soup.body
     return str(body) if body else str(soup)
