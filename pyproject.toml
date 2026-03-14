@@ -8,6 +8,8 @@ dependencies = [
     "mcp>=1.13.1",
     "pydantic>=2.11.7",
     "httpx>=0.28.1",
+    "html2text>=2024.2.26",
+    "beautifulsoup4>=4.14.3",
 ]
 
 [build-system]
@@ -16,6 +18,11 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/dash_mcp_server"]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.2",
+]
 
 [project.scripts]
 dash-mcp-server = "dash_mcp_server:main"

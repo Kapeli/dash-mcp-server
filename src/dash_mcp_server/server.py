@@ -1,12 +1,15 @@
 from typing import Optional
-from html.parser import HTMLParser
+import html2text
 import httpx
+import re
 import subprocess
 import json
 from pathlib import Path
+from bs4 import BeautifulSoup
 from mcp.server.fastmcp import FastMCP
 from mcp.server.fastmcp import Context
 from pydantic import BaseModel, Field
+from urllib.parse import urlparse, unquote
 
 mcp = FastMCP("Dash Documentation API")
 
@@ -221,93 +224,64 @@ class DocumentationPage(BaseModel):
     )
 
 
-class _HTMLToTextParser(HTMLParser):
-    """Converts HTML to plain text with markdown-style links."""
-
-    _block_tags = {
-        "p",
-        "br",
-        "div",
-        "h1",
-        "h2",
-        "h3",
-        "h4",
-        "h5",
-        "h6",
-        "li",
-        "tr",
-        "blockquote",
-        "pre",
-        "hr",
-        "section",
-        "article",
-        "header",
-        "footer",
-        "nav",
-        "dt",
-        "dd",
-    }
-    _skip_tags = {"script", "style"}
-
-    def __init__(self):
-        super().__init__()
-        self._parts: list[str] = []
-        self._skip_depth = 0
-        self._link_href: Optional[str] = None
-        self._link_text_parts: list[str] = []
-
-    def handle_starttag(self, tag: str, attrs: list[tuple[str, Optional[str]]]):
-        tag = tag.lower()
-        if tag in self._skip_tags:
-            self._skip_depth += 1
-            return
-        if self._skip_depth > 0:
-            return
-        if tag in self._block_tags:
-            self._parts.append("\n")
-        if tag == "a":
-            attr_dict = dict(attrs)
-            self._link_href = attr_dict.get("href")
-            self._link_text_parts = []
-
-    def handle_endtag(self, tag: str):
-        tag = tag.lower()
-        if tag in self._skip_tags:
-            self._skip_depth = max(0, self._skip_depth - 1)
-            return
-        if self._skip_depth > 0:
-            return
-        if tag == "a" and self._link_href is not None:
-            link_text = "".join(self._link_text_parts).strip()
-            if link_text:
-                self._parts.append(f"[{link_text}]({self._link_href})")
-            else:
-                self._parts.append(self._link_href)
-            self._link_href = None
-            self._link_text_parts = []
-
-    def handle_data(self, data: str):
-        if self._skip_depth > 0:
-            return
-        if self._link_href is not None:
-            self._link_text_parts.append(data)
-        else:
-            self._parts.append(data)
-
-    def get_text(self) -> str:
-        import re
-
-        text = "".join(self._parts)
-        text = re.sub(r"[ \t]+", " ", text)
-        text = re.sub(r"\n{3,}", "\n\n", text)
-        return text.strip()
-
-
 def html_to_text(html: str) -> str:
-    """Convert HTML to plain text with markdown-style links."""
-    parser = _HTMLToTextParser()
-    parser.feed(html)
-    return parser.get_text()
+    """Convert HTML to Markdown using html2text."""
+    h = html2text.HTML2Text()
+    h.ignore_links = False
+    h.ignore_images = True
+    h.body_width = 0
+    h.unicode_snob = True
+    return h.handle(html)
+
+
+def parse_fragment(load_url: str) -> Optional[str]:
+    """Extract the HTML anchor ID from a Dash load_url fragment.
+
+    Handles Dash-specific format: //dash_ref_{html-id}/Type/Name/Index
+    Falls back to plain #anchor for non-Dash docsets.
+    """
+    fragment = unquote(urlparse(load_url).fragment)
+    if not fragment:
+        return None
+    if fragment.startswith("//dash_ref_"):
+        anchor = fragment[len("//dash_ref_"):].split("/")[0]
+        return anchor if anchor else None
+    return fragment
+
+
+def extract_section(html: str, anchor_id: Optional[str]) -> str:
+    """Extract a specific section from HTML by anchor ID, or strip navigation.
+
+    With anchor_id: finds the element with that id and returns it. If the element
+    is a thin anchor tag, walks up to the nearest block-level parent.
+    Falls back to nav-stripping if the anchor is not found.
+
+    Without anchor_id: removes nav/sidebar elements and returns the body.
+    """
+    soup = BeautifulSoup(html, "html.parser")
+
+    if anchor_id:
+        element = soup.find(id=anchor_id)
+        if element:
+            # Walk up from thin elements (e.g. <a id="..."> used as anchor)
+            if element.name in ("a", "span"):
+                for parent in element.parents:
+                    if parent.name in ("div", "section", "article", "li"):
+                        element = parent
+                        break
+            # Return if we found a substantial element (not still a thin anchor)
+            if element.name not in ("a", "span"):
+                return str(element)
+        # Anchor not found, or thin element with no suitable parent — fall through
+
+    # Strip navigation and sidebar noise
+    for tag in soup.find_all(["nav", "aside", "header", "footer"]):
+        tag.decompose()
+    for tag in soup.find_all(class_=re.compile(r"sidebar|navigation|toc|menu", re.I)):
+        tag.decompose()
+
+    body = soup.body
+    return str(body) if body else str(soup)
 
 
 def estimate_tokens(obj) -> int:
@@ -614,7 +588,9 @@ async def load_documentation_page(ctx: Context, load_url: str) -> DocumentationP
             response = client.get(load_url)
             response.raise_for_status()
 
-        content = html_to_text(response.text)
+        anchor_id = parse_fragment(load_url)
+        cleaned_html = extract_section(response.text, anchor_id)
+        content = html_to_text(cleaned_html)
         await ctx.info(
             f"Successfully loaded documentation page ({len(content)} characters)"
         )
