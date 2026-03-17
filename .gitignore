@@ -183,3 +183,6 @@ CLAUDE.md
 
 # Git worktrees
 .worktrees/
+
+# MCP Registry
+.mcpregistry*

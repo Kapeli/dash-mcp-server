@@ -4,6 +4,8 @@ A Model Context Protocol (MCP) server that provides tools to interact with the [
 
 Dash 8 is required. You can download Dash 8 at https://blog.kapeli.com/dash-8.
 
+mcp-name: io.github.Kapeli/dash-mcp-server
+
 <a href="https://glama.ai/mcp/servers/@Kapeli/dash-mcp-server">
   <img width="380" height="200" src="https://glama.ai/mcp/servers/@Kapeli/dash-mcp-server/badge" alt="Dash Server MCP server" />
 </a>

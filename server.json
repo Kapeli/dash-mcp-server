@@ -1,0 +1,20 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.Kapeli/dash-mcp-server",
+  "description": "MCP server for Dash, the macOS API documentation browser. Search 200+ docsets.",
+  "repository": {
+    "url": "https://github.com/Kapeli/dash-mcp-server",
+    "source": "github"
+  },
+  "version": "1.1.0",
+  "packages": [
+    {
+      "registryType": "pypi",
+      "identifier": "dash-mcp-server",
+      "version": "1.1.0",
+      "transport": {
+        "type": "stdio"
+      }
+    }
+  ]
+}
