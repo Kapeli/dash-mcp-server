@@ -22,7 +22,31 @@ packages = ["src/dash_mcp_server"]
 [dependency-groups]
 dev = [
     "pytest>=9.0.2",
+    "ruff>=0.14.4",
 ]
 
 [project.scripts]
 dash-mcp-server = "dash_mcp_server:main"
+
+[tool.ruff]
+line-length = 88
+src = ["src", "tests"]
+target-version = "py312"
+
+[tool.ruff.lint]
+select = [
+    "B",   # flake8-bugbear
+    "C4",  # flake8-comprehensions
+    "E",   # pycodestyle errors
+    "F",   # Pyflakes
+    "I",   # isort
+    "PIE", # flake8-pie
+    "RET", # flake8-return
+    "RUF", # Ruff-specific rules
+    "SIM", # flake8-simplify
+    "UP",  # pyupgrade
+    "W",   # pycodestyle warnings
+]
+
+[tool.ruff.format]
+docstring-code-format = true

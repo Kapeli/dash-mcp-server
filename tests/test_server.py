@@ -1,4 +1,4 @@
-from dash_mcp_server.server import parse_fragment, extract_section
+from dash_mcp_server.server import extract_section, parse_fragment
 
 
 class TestParseFragment:
