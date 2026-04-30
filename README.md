@@ -18,6 +18,7 @@ The Dash MCP server provides tools for accessing and searching documentation dir
 - Search across docsets and code snippets
 - Load documentation pages from search results
 - Enable full-text search for specific docsets
+- Explicitly launch Dash and enable the Dash API server when setup is needed
 
 ### Notice
 
@@ -25,20 +26,28 @@ This is a work in progress. Any suggestions are welcome!
 
 ## Tools
 
-1. **list_installed_docsets**
+1. **ensure_dash_api_ready**
+   - Explicitly prepares Dash for MCP access by optionally launching Dash and enabling the API server
+   - This is the only setup tool that may launch Dash or write Dash macOS preferences
+2. **list_installed_docsets**
    - Lists all installed documentation sets in Dash
-2. **search_documentation**
+   - Read-only; does not launch Dash or change Dash settings
+3. **search_documentation**
    - Searches across docsets and snippets
-3. **load_documentation_page**
+   - Accepts `docset_identifiers` as a list of identifiers returned by `list_installed_docsets`
+   - Read-only; does not launch Dash or change Dash settings
+4. **load_documentation_page**
    - Loads a documentation page from a `load_url` returned by `search_documentation`
-4. **enable_docset_fts**
+   - Only accepts local Dash API URLs on the active Dash API port
+5. **enable_docset_fts**
    - Enables full-text search for a specific docset
+   - Returns a structured result with `success`, `identifier`, and optional `error`
 
 ## Requirements
 
 - macOS (required for Dash app)
 - [Dash](https://kapeli.com/dash) installed
-- Python 3.11.4 or higher
+- Python 3.12 or higher
 - uv
 
 ## Configuration
