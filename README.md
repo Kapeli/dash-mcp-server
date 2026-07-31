@@ -1,3 +1,5 @@
+[![MseeP.ai Security Assessment Badge](https://mseep.net/pr/kapeli-dash-mcp-server-badge.png)](https://mseep.ai/app/kapeli-dash-mcp-server)
+
 # mcp-server-dash
 
 A Model Context Protocol (MCP) server that provides tools to interact with the [Dash](https://kapeli.com/dash) documentation browser API.
