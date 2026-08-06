@@ -1,17 +1,26 @@
-from typing import Optional
+import json
+import subprocess
+import time
+from pathlib import Path
+from urllib.parse import unquote, urlparse
+
 import html2text
 import httpx
-
-import subprocess
-import json
-from pathlib import Path
 from bs4 import BeautifulSoup
-from mcp.server.fastmcp import FastMCP
-from mcp.server.fastmcp import Context
+from mcp.server.fastmcp import Context, FastMCP
 from pydantic import BaseModel, Field
-from urllib.parse import urlparse, unquote
 
 mcp = FastMCP("Dash Documentation API")
+
+DASH_API_HELP = (
+    "Please ensure Dash is running and the API server is enabled "
+    "(in Dash Settings > Integration)."
+)
+DASH_API_CONNECTION_ERROR = f"Failed to connect to Dash API Server. {DASH_API_HELP}"
+DASH_API_ENABLE_ERROR = (
+    "Failed to enable Dash API Server automatically. Please enable it manually in "
+    "Dash Settings > Integration"
+)
 
 
 async def check_api_health(ctx: Context, port: int) -> bool:
@@ -28,7 +37,7 @@ async def check_api_health(ctx: Context, port: int) -> bool:
         return False
 
 
-async def working_api_base_url(ctx: Context) -> Optional[str]:
+async def working_api_base_url(ctx: Context) -> str | None:
     dash_running = await ensure_dash_running(ctx)
     if not dash_running:
         return None
@@ -37,7 +46,8 @@ async def working_api_base_url(ctx: Context) -> Optional[str]:
     if port is None:
         # Try to automatically enable the Dash API Server
         await ctx.info(
-            "The Dash API Server is not enabled. Attempting to enable it automatically..."
+            "The Dash API Server is not enabled. "
+            "Attempting to enable it automatically..."
         )
         try:
             subprocess.run(
@@ -62,31 +72,23 @@ async def working_api_base_url(ctx: Context) -> Optional[str]:
                 check=True,
                 timeout=10,
             )
-            # Wait a moment for Dash to pick up the change
-            import time
-
             time.sleep(2)
 
             # Try to get the port again
             port = await get_dash_api_port(ctx)
             if port is None:
-                await ctx.error(
-                    "Failed to enable Dash API Server automatically. Please enable it manually in Dash Settings > Integration"
-                )
+                await ctx.error(DASH_API_ENABLE_ERROR)
                 return None
-            else:
-                await ctx.info("Successfully enabled Dash API Server")
-        except Exception as e:
-            await ctx.error(
-                "Failed to enable Dash API Server automatically. Please enable it manually in Dash Settings > Integration"
-            )
+            await ctx.info("Successfully enabled Dash API Server")
+        except Exception:
+            await ctx.error(DASH_API_ENABLE_ERROR)
             return None
 
     return f"http://127.0.0.1:{port}"
 
 
-async def get_dash_api_port(ctx: Context) -> Optional[int]:
-    """Get the Dash API port from the status.json file and verify the API server is responding."""
+async def get_dash_api_port(ctx: Context) -> int | None:
+    """Get the Dash API port and verify the API server is responding."""
     status_file = (
         Path.home()
         / "Library"
@@ -97,7 +99,7 @@ async def get_dash_api_port(ctx: Context) -> Optional[int]:
     )
 
     try:
-        with open(status_file, "r") as f:
+        with open(status_file) as f:
             status_data = json.load(f)
             port = status_data.get("port")
             if port is None:
@@ -106,8 +108,7 @@ async def get_dash_api_port(ctx: Context) -> Optional[int]:
         # Check if the API server is actually responding
         if await check_api_health(ctx, port):
             return port
-        else:
-            return None
+        return None
 
     except (FileNotFoundError, json.JSONDecodeError, KeyError):
         return None
@@ -139,18 +140,14 @@ async def ensure_dash_running(ctx: Context) -> bool:
                     check=True,
                     timeout=10,
                 )
-            # Wait a moment for Dash to start
-            import time
-
             time.sleep(4)
 
             # Check again if Dash is now running
             if not check_dash_running():
                 await ctx.error("Failed to launch Dash application")
                 return False
-            else:
-                await ctx.info("Dash launched successfully")
-                return True
+            await ctx.info("Dash launched successfully")
+            return True
         except subprocess.CalledProcessError:
             await ctx.error("Failed to launch Dash application")
             return False
@@ -168,9 +165,12 @@ class DocsetResult(BaseModel):
     identifier: str = Field(description="Unique identifier")
     platform: str = Field(description="Platform/type of the docset")
     full_text_search: str = Field(
-        description="Full-text search status: 'not supported', 'disabled', 'indexing', or 'enabled'"
+        description=(
+            "Full-text search status: 'not supported', 'disabled', "
+            "'indexing', or 'enabled'"
+        )
     )
-    notice: Optional[str] = Field(
+    notice: str | None = Field(
         description="Optional notice about the docset status", default=None
     )
 
@@ -181,7 +181,7 @@ class DocsetResults(BaseModel):
     docsets: list[DocsetResult] = Field(
         description="List of installed docsets", default_factory=list
     )
-    error: Optional[str] = Field(
+    error: str | None = Field(
         description="Error message if there was an issue", default=None
     )
 
@@ -191,16 +191,14 @@ class SearchResult(BaseModel):
 
     name: str = Field(description="Name of the documentation entry")
     type: str = Field(description="Type of result (Function, Class, etc.)")
-    platform: Optional[str] = Field(description="Platform of the result", default=None)
+    platform: str | None = Field(description="Platform of the result", default=None)
     load_url: str = Field(description="URL to load the documentation")
-    docset: Optional[str] = Field(description="Name of the docset", default=None)
-    description: Optional[str] = Field(
-        description="Additional description", default=None
-    )
-    language: Optional[str] = Field(
+    docset: str | None = Field(description="Name of the docset", default=None)
+    description: str | None = Field(description="Additional description", default=None)
+    language: str | None = Field(
         description="Programming language (snippet results only)", default=None
     )
-    tags: Optional[str] = Field(description="Tags (snippet results only)", default=None)
+    tags: str | None = Field(description="Tags (snippet results only)", default=None)
 
 
 class SearchResults(BaseModel):
@@ -209,7 +207,7 @@ class SearchResults(BaseModel):
     results: list[SearchResult] = Field(
         description="List of search results", default_factory=list
     )
-    error: Optional[str] = Field(
+    error: str | None = Field(
         description="Error message if there was an issue", default=None
     )
 
@@ -219,7 +217,7 @@ class DocumentationPage(BaseModel):
 
     content: str = Field(description="The documentation page content")
     load_url: str = Field(description="The URL that was loaded")
-    error: Optional[str] = Field(
+    error: str | None = Field(
         description="Error message if there was an issue", default=None
     )
 
@@ -234,7 +232,7 @@ def html_to_text(html: str) -> str:
     return h.handle(html)
 
 
-def parse_fragment(load_url: str) -> Optional[str]:
+def parse_fragment(load_url: str) -> str | None:
     """Extract the HTML anchor ID from a Dash load_url fragment.
 
     Handles Dash-specific format: //dash_ref_{html-id}/Type/Name/Index
@@ -244,12 +242,12 @@ def parse_fragment(load_url: str) -> Optional[str]:
     if not fragment:
         return None
     if fragment.startswith("//dash_ref_"):
-        anchor = fragment[len("//dash_ref_"):].split("/")[0]
+        anchor = fragment[len("//dash_ref_") :].split("/")[0]
         return anchor if anchor else None
     return fragment
 
 
-def extract_section(html: str, anchor_id: Optional[str]) -> str:
+def extract_section(html: str, anchor_id: str | None) -> str:
     """Extract a specific section from HTML by anchor ID, or strip navigation.
 
     With anchor_id: finds the element with that id and returns it. If the element
@@ -272,41 +270,40 @@ def extract_section(html: str, anchor_id: Optional[str]) -> str:
             # Return if we found a substantial element (not still a thin anchor)
             if element.name not in ("a", "span"):
                 return str(element)
-        # Anchor not found, or thin element with no suitable parent — fall through
+        # Anchor not found, or thin element with no suitable parent - fall through
 
     # Strip navigation and sidebar noise
     for tag in soup.find_all(["nav", "aside", "header", "footer"]):
         tag.decompose()
-
 
     body = soup.body
     return str(body) if body else str(soup)
 
 
 def estimate_tokens(obj) -> int:
-    """Estimate token count for a serialized object. Rough approximation: 1 token ≈ 4 characters."""
+    """Estimate token count for a serialized object."""
     if isinstance(obj, str):
         return max(1, len(obj) // 4)
-    elif isinstance(obj, (list, tuple)):
+    if isinstance(obj, (list, tuple)):
         return sum(estimate_tokens(item) for item in obj)
-    elif isinstance(obj, dict):
+    if isinstance(obj, dict):
         return sum(estimate_tokens(k) + estimate_tokens(v) for k, v in obj.items())
-    elif hasattr(obj, "model_dump"):  # Pydantic model
+    if hasattr(obj, "model_dump"):  # Pydantic model
         return estimate_tokens(obj.model_dump())
-    else:
-        return max(1, len(str(obj)) // 4)
+    return max(1, len(str(obj)) // 4)
 
 
 @mcp.tool()
 async def list_installed_docsets(ctx: Context) -> DocsetResults:
-    """List all installed documentation sets in Dash. An empty list is returned if the user has no docsets installed.
-    Results are automatically truncated if they would exceed 25,000 tokens."""
+    """List all installed documentation sets in Dash.
+
+    An empty list is returned if the user has no docsets installed.
+    Results are automatically truncated if they would exceed 25,000 tokens.
+    """
     try:
         base_url = await working_api_base_url(ctx)
         if base_url is None:
-            return DocsetResults(
-                error="Failed to connect to Dash API Server. Please ensure Dash is running and the API server is enabled (in Dash Settings > Integration)."
-            )
+            return DocsetResults(error=DASH_API_CONNECTION_ERROR)
         await ctx.debug("Fetching installed docsets from Dash API")
 
         with httpx.Client(timeout=30.0) as client:
@@ -336,7 +333,8 @@ async def list_installed_docsets(ctx: Context) -> DocsetResults:
 
             if current_tokens + docset_tokens > token_limit:
                 await ctx.warning(
-                    f"Token limit reached. Returning {len(limited_docsets)} of {len(docsets)} docsets to stay under 25k token limit."
+                    f"Token limit reached. Returning {len(limited_docsets)} of "
+                    f"{len(docsets)} docsets to stay under 25k token limit."
                 )
                 break
 
@@ -345,7 +343,8 @@ async def list_installed_docsets(ctx: Context) -> DocsetResults:
 
         if len(limited_docsets) < len(docsets):
             await ctx.info(
-                f"Returned {len(limited_docsets)} docsets (truncated from {len(docsets)} due to token limit)"
+                f"Returned {len(limited_docsets)} docsets "
+                f"(truncated from {len(docsets)} due to token limit)"
             )
 
         return DocsetResults(docsets=limited_docsets)
@@ -354,7 +353,10 @@ async def list_installed_docsets(ctx: Context) -> DocsetResults:
         if e.response.status_code == 404:
             await ctx.warning("No docsets found. Install some in Settings > Downloads.")
             return DocsetResults(
-                error="No docsets found. Instruct the user to install some docsets in Settings > Downloads."
+                error=(
+                    "No docsets found. Instruct the user to install some docsets "
+                    "in Settings > Downloads."
+                )
             )
         return DocsetResults(error=f"HTTP error: {e}")
     except Exception as e:
@@ -375,7 +377,7 @@ async def search_documentation(
 
     Args:
         query: The search query string
-        docset_identifiers: Comma-separated list of docset identifiers to search in (from list_installed_docsets)
+        docset_identifiers: Comma-separated docset identifiers to search in
         search_snippets: Whether to include snippets in search results
         max_results: Maximum number of results to return (1-1000)
 
@@ -386,12 +388,12 @@ async def search_documentation(
         return SearchResults(error="Query cannot be empty")
 
     if not docset_identifiers.strip():
-        await ctx.error(
-            "docset_identifiers cannot be empty. Get the docset identifiers using list_installed_docsets"
+        docset_error = (
+            "docset_identifiers cannot be empty. Get the docset identifiers using "
+            "list_installed_docsets"
         )
-        return SearchResults(
-            error="docset_identifiers cannot be empty. Get the docset identifiers using list_installed_docsets"
-        )
+        await ctx.error(docset_error)
+        return SearchResults(error=docset_error)
 
     if max_results < 1 or max_results > 1000:
         await ctx.error("max_results must be between 1 and 1000")
@@ -400,9 +402,7 @@ async def search_documentation(
     try:
         base_url = await working_api_base_url(ctx)
         if base_url is None:
-            return SearchResults(
-                error="Failed to connect to Dash API Server. Please ensure Dash is running and the API server is enabled (in Dash Settings > Integration)."
-            )
+            return SearchResults(error=DASH_API_CONNECTION_ERROR)
 
         params = {
             "query": query,
@@ -457,7 +457,8 @@ async def search_documentation(
 
             if current_tokens + result_tokens > token_limit:
                 await ctx.warning(
-                    f"Token limit reached. Returning {len(limited_results)} of {len(results)} results to stay under 25k token limit."
+                    f"Token limit reached. Returning {len(limited_results)} of "
+                    f"{len(results)} results to stay under 25k token limit."
                 )
                 break
 
@@ -466,7 +467,8 @@ async def search_documentation(
 
         if len(limited_results) < len(results):
             await ctx.info(
-                f"Returned {len(limited_results)} results (truncated from {len(results)} due to token limit)"
+                f"Returned {len(limited_results)} results "
+                f"(truncated from {len(results)} due to token limit)"
             )
 
         return SearchResults(results=limited_results, error=warning_message)
@@ -475,44 +477,47 @@ async def search_documentation(
             error_text = e.response.text
             if "Docset with identifier" in error_text and "not found" in error_text:
                 await ctx.error(
-                    "Invalid docset identifier. Run list_installed_docsets to see available docsets."
+                    "Invalid docset identifier. Run list_installed_docsets "
+                    "to see available docsets."
                 )
                 return SearchResults(
-                    error="Invalid docset identifier. Run list_installed_docsets to see available docsets, then use the exact identifier from that list."
+                    error=(
+                        "Invalid docset identifier. Run list_installed_docsets "
+                        "to see available docsets, then use the exact identifier "
+                        "from that list."
+                    )
                 )
-            elif "No docsets found" in error_text:
+            if "No docsets found" in error_text:
                 await ctx.error("No valid docsets found for search.")
                 return SearchResults(
-                    error="No valid docsets found for search. Either provide valid docset identifiers from list_installed_docsets, or set search_snippets=true to search snippets only."
+                    error=(
+                        "No valid docsets found for search. Either provide valid "
+                        "docset identifiers from list_installed_docsets, or set "
+                        "search_snippets=true to search snippets only."
+                    )
                 )
-            else:
-                await ctx.error(f"Bad request: {error_text}")
-                return SearchResults(
-                    error=f"Bad request: {error_text}. Please ensure Dash is running and the API server is enabled (in Dash Settings > Integration)."
-                )
-        elif e.response.status_code == 403:
+            await ctx.error(f"Bad request: {error_text}")
+            return SearchResults(error=f"Bad request: {error_text}. {DASH_API_HELP}")
+        if e.response.status_code == 403:
             error_text = e.response.text
             if "API access blocked due to Dash trial expiration" in error_text:
                 await ctx.error(
                     "Dash trial expired. Purchase Dash to continue using the API."
                 )
                 return SearchResults(
-                    error="Your Dash trial has expired. Purchase Dash at https://kapeli.com/dash to continue using the API. During trial expiration, API access is blocked."
+                    error=(
+                        "Your Dash trial has expired. Purchase Dash at "
+                        "https://kapeli.com/dash to continue using the API. "
+                        "During trial expiration, API access is blocked."
+                    )
                 )
-            else:
-                await ctx.error(f"Forbidden: {error_text}")
-                return SearchResults(
-                    error=f"Forbidden: {error_text}. Please ensure Dash is running and the API server is enabled (in Dash Settings > Integration)."
-                )
+            await ctx.error(f"Forbidden: {error_text}")
+            return SearchResults(error=f"Forbidden: {error_text}. {DASH_API_HELP}")
         await ctx.error(f"HTTP error: {e}")
-        return SearchResults(
-            error=f"HTTP error: {e}. Please ensure Dash is running and the API server is enabled (in Dash Settings > Integration)."
-        )
+        return SearchResults(error=f"HTTP error: {e}. {DASH_API_HELP}")
     except Exception as e:
         await ctx.error(f"Search failed: {e}")
-        return SearchResults(
-            error=f"Search failed: {e}. Please ensure Dash is running and the API server is enabled (in Dash Settings > Integration)."
-        )
+        return SearchResults(error=f"Search failed: {e}. {DASH_API_HELP}")
 
 
 @mcp.tool()
@@ -542,13 +547,12 @@ async def enable_docset_fts(ctx: Context, identifier: str) -> bool:
                 f"{base_url}/docsets/enable_fts", params={"identifier": identifier}
             )
             response.raise_for_status()
-            result = response.json()
 
     except httpx.HTTPStatusError as e:
         if e.response.status_code == 400:
             await ctx.error(f"Bad request: {e.response.text}")
             return False
-        elif e.response.status_code == 404:
+        if e.response.status_code == 404:
             await ctx.error(f"Docset not found: {identifier}")
             return False
         await ctx.error(f"HTTP error: {e}")
@@ -565,7 +569,7 @@ async def load_documentation_page(ctx: Context, load_url: str) -> DocumentationP
     Load a documentation page from a load_url returned by search_documentation.
 
     Args:
-        load_url: The load_url value from a search result (must point to the local Dash API at 127.0.0.1)
+        load_url: Search result URL from the local Dash API
 
     Returns:
         The documentation page content as plain text with markdown-style links
@@ -577,7 +581,11 @@ async def load_documentation_page(ctx: Context, load_url: str) -> DocumentationP
         return DocumentationPage(
             content="",
             load_url=load_url,
-            error="Invalid URL: load_url must point to the local Dash API (http://127.0.0.1). Only URLs returned by search_documentation are supported.",
+            error=(
+                "Invalid URL: load_url must point to the local Dash API "
+                "(http://127.0.0.1). Only URLs returned by "
+                "search_documentation are supported."
+            ),
         )
 
     try:
@@ -605,13 +613,16 @@ async def load_documentation_page(ctx: Context, load_url: str) -> DocumentationP
                 return DocumentationPage(
                     content="",
                     load_url=load_url,
-                    error="Your Dash trial has expired. Purchase Dash at https://kapeli.com/dash to continue using the API.",
+                    error=(
+                        "Your Dash trial has expired. Purchase Dash at "
+                        "https://kapeli.com/dash to continue using the API."
+                    ),
                 )
             await ctx.error(f"Forbidden: {error_text}")
             return DocumentationPage(
                 content="", load_url=load_url, error=f"Forbidden: {error_text}"
             )
-        elif e.response.status_code == 404:
+        if e.response.status_code == 404:
             await ctx.error("Documentation page not found.")
             return DocumentationPage(
                 content="", load_url=load_url, error="Documentation page not found."
