@@ -209,8 +209,17 @@ class SearchResults(BaseModel):
     results: list[SearchResult] = Field(
         description="List of search results", default_factory=list
     )
-    error: Optional[str] = Field(
-        description="Error message if there was an issue", default=None
+    error: Optional[list[str]] = Field(
+        description="Why the search failed. When this is set, `results` is empty and "
+        "nothing was searched. A list because more than one thing can be wrong at once — "
+        "several invalid arguments are all reported together rather than one per attempt",
+        default=None,
+    )
+    warning: Optional[list[str]] = Field(
+        description="Reasons the results, while valid and usable, may be incomplete — "
+        "docsets still indexing, or output truncated to fit the token limit. More than "
+        "one can apply to a single search. Never a reason to discard `results`",
+        default=None,
     )
 
 
@@ -380,28 +389,34 @@ async def search_documentation(
         max_results: Maximum number of results to return (1-1000)
 
     Results are automatically truncated if they would exceed 25,000 tokens.
-    """
-    if not query.strip():
-        await ctx.error("Query cannot be empty")
-        return SearchResults(error="Query cannot be empty")
 
+    A search that succeeded but may be incomplete — some docsets still indexing, say —
+    comes back with `warning` set and `results` populated; `error` is only set when the
+    search failed and there is nothing to use.
+    """
+    # Every argument is checked before any is reported, so a caller fixing a call is told
+    # everything that is wrong with it, rather than discovering the next problem on the
+    # next attempt.
+    problems = []
+    if not query.strip():
+        problems.append("Query cannot be empty")
     if not docset_identifiers.strip():
-        await ctx.error(
+        problems.append(
             "docset_identifiers cannot be empty. Get the docset identifiers using list_installed_docsets"
         )
-        return SearchResults(
-            error="docset_identifiers cannot be empty. Get the docset identifiers using list_installed_docsets"
-        )
-
     if max_results < 1 or max_results > 1000:
-        await ctx.error("max_results must be between 1 and 1000")
-        return SearchResults(error="max_results must be between 1 and 1000")
+        problems.append("max_results must be between 1 and 1000")
+
+    if problems:
+        for problem in problems:
+            await ctx.error(problem)
+        return SearchResults(error=problems)
 
     try:
         base_url = await working_api_base_url(ctx)
         if base_url is None:
             return SearchResults(
-                error="Failed to connect to Dash API Server. Please ensure Dash is running and the API server is enabled (in Dash Settings > Integration)."
+                error=["Failed to connect to Dash API Server. Please ensure Dash is running and the API server is enabled (in Dash Settings > Integration)."]
             )
 
         params = {
@@ -418,20 +433,26 @@ async def search_documentation(
             response.raise_for_status()
             result = response.json()
 
-        # Check for warning message in response
-        warning_message = None
+        # Dash sends a message alongside results when the search ran but could not cover
+        # everything — docsets still indexing, typically. It qualifies the results; it
+        # does not invalidate them.
+        warnings = []
         if "message" in result:
-            warning_message = result["message"]
-            await ctx.warning(warning_message)
+            warnings.append(result["message"])
+            await ctx.warning(result["message"])
 
         results = result.get("results", [])
         # Filter out empty dict entries (Dash API returns [{}] for no results)
         results = [r for r in results if r]
 
         if not results and " " in query:
-            return SearchResults(
-                results=[], error="Nothing found. Try to search for fewer terms."
-            )
+            # A search that ran and matched nothing is an outcome, not a failure, so the
+            # advice goes in `warning`. It is appended rather than substituted: when
+            # docsets were indexing, that is the actual reason nothing came back, and
+            # telling the caller to shorten a perfectly good query instead would send it
+            # chasing the wrong fix.
+            warnings.append("Nothing found. Try to search for fewer terms.")
+            return SearchResults(results=[], warning=warnings)
 
         await ctx.info(f"Found {len(results)} results")
 
@@ -465,11 +486,19 @@ async def search_documentation(
             current_tokens += result_tokens
 
         if len(limited_results) < len(results):
+            # Truncation is the second way a valid response can be incomplete, and it was
+            # previously reported only to the log — leaving a caller holding 40 results
+            # that look like the whole set.
+            warnings.append(
+                f"Returned {len(limited_results)} of {len(results)} results to stay "
+                f"under the 25,000 token limit. Narrow the query or lower max_results "
+                f"to see the rest."
+            )
             await ctx.info(
                 f"Returned {len(limited_results)} results (truncated from {len(results)} due to token limit)"
             )
 
-        return SearchResults(results=limited_results, error=warning_message)
+        return SearchResults(results=limited_results, warning=warnings or None)
     except httpx.HTTPStatusError as e:
         if e.response.status_code == 400:
             error_text = e.response.text
@@ -478,17 +507,17 @@ async def search_documentation(
                     "Invalid docset identifier. Run list_installed_docsets to see available docsets."
                 )
                 return SearchResults(
-                    error="Invalid docset identifier. Run list_installed_docsets to see available docsets, then use the exact identifier from that list."
+                    error=["Invalid docset identifier. Run list_installed_docsets to see available docsets, then use the exact identifier from that list."]
                 )
             elif "No docsets found" in error_text:
                 await ctx.error("No valid docsets found for search.")
                 return SearchResults(
-                    error="No valid docsets found for search. Either provide valid docset identifiers from list_installed_docsets, or set search_snippets=true to search snippets only."
+                    error=["No valid docsets found for search. Either provide valid docset identifiers from list_installed_docsets, or set search_snippets=true to search snippets only."]
                 )
             else:
                 await ctx.error(f"Bad request: {error_text}")
                 return SearchResults(
-                    error=f"Bad request: {error_text}. Please ensure Dash is running and the API server is enabled (in Dash Settings > Integration)."
+                    error=[f"Bad request: {error_text}. Please ensure Dash is running and the API server is enabled (in Dash Settings > Integration)."]
                 )
         elif e.response.status_code == 403:
             error_text = e.response.text
@@ -497,21 +526,21 @@ async def search_documentation(
                     "Dash trial expired. Purchase Dash to continue using the API."
                 )
                 return SearchResults(
-                    error="Your Dash trial has expired. Purchase Dash at https://kapeli.com/dash to continue using the API. During trial expiration, API access is blocked."
+                    error=["Your Dash trial has expired. Purchase Dash at https://kapeli.com/dash to continue using the API. During trial expiration, API access is blocked."]
                 )
             else:
                 await ctx.error(f"Forbidden: {error_text}")
                 return SearchResults(
-                    error=f"Forbidden: {error_text}. Please ensure Dash is running and the API server is enabled (in Dash Settings > Integration)."
+                    error=[f"Forbidden: {error_text}. Please ensure Dash is running and the API server is enabled (in Dash Settings > Integration)."]
                 )
         await ctx.error(f"HTTP error: {e}")
         return SearchResults(
-            error=f"HTTP error: {e}. Please ensure Dash is running and the API server is enabled (in Dash Settings > Integration)."
+            error=[f"HTTP error: {e}. Please ensure Dash is running and the API server is enabled (in Dash Settings > Integration)."]
         )
     except Exception as e:
         await ctx.error(f"Search failed: {e}")
         return SearchResults(
-            error=f"Search failed: {e}. Please ensure Dash is running and the API server is enabled (in Dash Settings > Integration)."
+            error=[f"Search failed: {e}. Please ensure Dash is running and the API server is enabled (in Dash Settings > Integration)."]
         )
 
 
