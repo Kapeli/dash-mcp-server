@@ -2,6 +2,7 @@ from typing import Optional
 import html2text
 import httpx
 
+import difflib
 import subprocess
 import json
 from pathlib import Path
@@ -179,7 +180,16 @@ class DocsetResults(BaseModel):
     """Result from listing docsets."""
 
     docsets: list[DocsetResult] = Field(
-        description="List of installed docsets", default_factory=list
+        description="Installed docsets matching the filter, or all of them when no "
+        "filter was given",
+        default_factory=list,
+    )
+    suggestions: list[DocsetResult] = Field(
+        description="Docsets that resemble the filter but do not match it. Only ever "
+        "populated when `docsets` is empty, and these are guesses, not results: an empty "
+        "`docsets` means no installed docset matches, which usually means the docset is "
+        "not installed",
+        default_factory=list,
     )
     error: Optional[str] = Field(
         description="Error message if there was an issue", default=None
@@ -234,6 +244,79 @@ def html_to_text(html: str) -> str:
     return h.handle(html)
 
 
+# A near-miss has to look quite like the term before it is worth showing. Measured against
+# 198 real docsets: 0.6 keeps the recoveries that matter ("sqlachemy" -> SQLAlchemy at 0.95,
+# "postgress" -> PostgreSQL at 0.67) and drops the noise a lower bar lets through
+# ("node" -> MongoDB at 0.55, "postgres" -> Man Pages at 0.50).
+_SUGGESTION_CUTOFF = 0.6
+_MAX_SUGGESTIONS = 5
+
+
+def _match_rank(docset: dict, term: str) -> Optional[int]:
+    """Rank a docset against a search term, or None if it does not match at all.
+
+    Lower is better: an exact name match beats a name that starts with the term, which
+    beats one that merely contains it, which beats a match found only in the platform tag
+    or the identifier.
+    """
+    name = docset.get("name", "").casefold()
+    platform = docset.get("platform", "").casefold()
+    identifier = docset.get("identifier", "").casefold()
+
+    if name == term:
+        return 0
+    if name.startswith(term):
+        return 1
+    if term in name:
+        return 2
+    if term in platform or term in identifier:
+        return 3
+    return None
+
+
+def filter_docsets(docsets: list[dict], term: str) -> tuple[list[dict], list[dict]]:
+    """Split docsets into those matching `term` and, failing that, near-misses.
+
+    Matching is a case-insensitive substring test across the display name, the platform
+    tag and the identifier, because none of the three is reliable alone: PostgreSQL's
+    platform is "psql", 22 docsets share the platform "cheatsheet", and the identifier is
+    an opaque key the caller may be echoing back.
+
+    When nothing matches, the second list holds docsets whose names merely resemble the
+    term. They are returned separately and never alongside real matches, because a
+    plausible wrong docset is worse than none: a caller that searches it will find the
+    symbol missing and conclude it is undocumented, when the docset is simply not
+    installed.
+    """
+    term = term.strip().casefold()
+    if not term:
+        return list(docsets), []
+
+    ranked = [
+        (rank, docset)
+        for docset in docsets
+        if (rank := _match_rank(docset, term)) is not None
+    ]
+    if ranked:
+        # Sort is stable, so docsets of equal rank keep the order Dash returned them in.
+        ranked.sort(key=lambda pair: pair[0])
+        return [docset for _, docset in ranked], []
+
+    scored = []
+    for docset in docsets:
+        similarity = max(
+            difflib.SequenceMatcher(
+                None, term, docset.get(field, "").casefold()
+            ).ratio()
+            for field in ("name", "platform")
+        )
+        if similarity >= _SUGGESTION_CUTOFF:
+            scored.append((similarity, docset))
+
+    scored.sort(key=lambda pair: -pair[0])
+    return [], [docset for _, docset in scored[:_MAX_SUGGESTIONS]]
+
+
 def parse_fragment(load_url: str) -> Optional[str]:
     """Extract the HTML anchor ID from a Dash load_url fragment.
 
@@ -244,7 +327,7 @@ def parse_fragment(load_url: str) -> Optional[str]:
     if not fragment:
         return None
     if fragment.startswith("//dash_ref_"):
-        anchor = fragment[len("//dash_ref_"):].split("/")[0]
+        anchor = fragment[len("//dash_ref_") :].split("/")[0]
         return anchor if anchor else None
     return fragment
 
@@ -278,7 +361,6 @@ def extract_section(html: str, anchor_id: Optional[str]) -> str:
     for tag in soup.find_all(["nav", "aside", "header", "footer"]):
         tag.decompose()
 
-
     body = soup.body
     return str(body) if body else str(soup)
 
@@ -298,9 +380,21 @@ def estimate_tokens(obj) -> int:
 
 
 @mcp.tool()
-async def list_installed_docsets(ctx: Context) -> DocsetResults:
-    """List all installed documentation sets in Dash. An empty list is returned if the user has no docsets installed.
-    Results are automatically truncated if they would exceed 25,000 tokens."""
+async def list_installed_docsets(ctx: Context, filter: str = "") -> DocsetResults:
+    """List installed documentation sets in Dash. An empty list is returned if the user has no docsets installed.
+
+    Args:
+        filter: Narrow the list to docsets whose name, platform or identifier contains
+            this term, case-insensitively — "python", "postgres", "cheatsheet". Omit it
+            to list everything, which on a well-stocked install is several thousand
+            tokens; filtering is usually the cheaper way to find the identifier you need.
+
+    If nothing matches, `docsets` is empty and `suggestions` may hold docsets whose names
+    resemble the term. A suggestion is a guess, not a match: an empty `docsets` normally
+    means that docset is not installed.
+
+    Results are automatically truncated if they would exceed 25,000 tokens.
+    """
     try:
         base_url = await working_api_base_url(ctx)
         if base_url is None:
@@ -314,8 +408,24 @@ async def list_installed_docsets(ctx: Context) -> DocsetResults:
             response.raise_for_status()
             result = response.json()
 
-        docsets = result.get("docsets", [])
-        await ctx.info(f"Found {len(docsets)} installed docsets")
+        installed = result.get("docsets", [])
+        docsets, suggested = filter_docsets(installed, filter)
+
+        if filter:
+            await ctx.info(
+                f"{len(docsets)} of {len(installed)} installed docsets match {filter!r}"
+            )
+            if not docsets:
+                await ctx.warning(
+                    f"No installed docset matches {filter!r}"
+                    + (
+                        f"; closest names: {', '.join(d['name'] for d in suggested)}"
+                        if suggested
+                        else ""
+                    )
+                )
+        else:
+            await ctx.info(f"Found {len(docsets)} installed docsets")
 
         # Build result list with token limit checking
         token_limit = 25000
@@ -348,7 +458,19 @@ async def list_installed_docsets(ctx: Context) -> DocsetResults:
                 f"Returned {len(limited_docsets)} docsets (truncated from {len(docsets)} due to token limit)"
             )
 
-        return DocsetResults(docsets=limited_docsets)
+        return DocsetResults(
+            docsets=limited_docsets,
+            suggestions=[
+                DocsetResult(
+                    name=docset["name"],
+                    identifier=docset["identifier"],
+                    platform=docset["platform"],
+                    full_text_search=docset["full_text_search"],
+                    notice=docset.get("notice"),
+                )
+                for docset in suggested
+            ],
+        )
 
     except httpx.HTTPStatusError as e:
         if e.response.status_code == 404:

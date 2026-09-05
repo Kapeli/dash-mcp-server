@@ -27,6 +27,10 @@ This is a work in progress. Any suggestions are welcome!
 
 1. **list_installed_docsets**
    - Lists all installed documentation sets in Dash
+   - Optional `filter`: a case-insensitive substring matched against each docset's name,
+     platform and identifier, so `filter="python"` finds the Python docsets without
+     fetching all of them. Omit it for the full list. When nothing matches, `suggestions`
+     carries the closest names instead — `"sqlachemy"` comes back with SQLAlchemy
 2. **search_documentation**
    - Searches across docsets and snippets
 3. **load_documentation_page**
