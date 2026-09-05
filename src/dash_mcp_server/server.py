@@ -249,11 +249,31 @@ def parse_fragment(load_url: str) -> Optional[str]:
     return fragment
 
 
+HEADING_TAGS = ("h1", "h2", "h3", "h4", "h5", "h6")
+
+
+def extract_heading_section(heading) -> str:
+    """Return a heading plus its following siblings, up to the next heading
+    of the same or higher rank (an <h2> section stops at the next <h2> or <h1>)
+    or the end of the parent container, whichever comes first."""
+    rank = int(heading.name[1])
+    parts = [str(heading)]
+    for sibling in heading.next_siblings:
+        if getattr(sibling, "name", None) in HEADING_TAGS:
+            sibling_rank = int(sibling.name[1])
+            if sibling_rank <= rank:
+                break
+        parts.append(str(sibling))
+    return "".join(parts)
+
+
 def extract_section(html: str, anchor_id: Optional[str]) -> str:
     """Extract a specific section from HTML by anchor ID, or strip navigation.
 
     With anchor_id: finds the element with that id and returns it. If the element
-    is a thin anchor tag, walks up to the nearest block-level parent.
+    is a thin anchor tag, walks up to the nearest block-level parent. If the
+    element is a heading, returns the heading plus all following sibling nodes,
+    stopping before the next heading of the same or higher rank.
     Falls back to nav-stripping if the anchor is not found.
 
     Without anchor_id: removes nav/sidebar elements and returns the body.
@@ -270,6 +290,8 @@ def extract_section(html: str, anchor_id: Optional[str]) -> str:
                         element = parent
                         break
             # Return if we found a substantial element (not still a thin anchor)
+            if element.name in HEADING_TAGS:
+                return extract_heading_section(element)
             if element.name not in ("a", "span"):
                 return str(element)
         # Anchor not found, or thin element with no suitable parent — fall through

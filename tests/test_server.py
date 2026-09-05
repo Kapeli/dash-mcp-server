@@ -82,3 +82,66 @@ class TestExtractSection:
         # No suitable block parent, so falls back to nav-stripping
         assert "<nav>" not in result
         assert "Content with no block wrapper" in result
+
+
+class TestExtractSectionHeadings:
+    def test_heading_section_stops_at_same_rank_heading(self):
+        html = """
+        <html><body>
+          <h2 id="fastapi.Depends">fastapi.Depends</h2>
+          <p>First paragraph about Depends.</p>
+          <table><tr><td>Signature table</td></tr></table>
+          <pre><code>def Depends()</code></pre>
+          <h2 id="fastapi.Security">fastapi.Security</h2>
+          <p>Security section content.</p>
+        </body></html>
+        """
+        result = extract_section(html, "fastapi.Depends")
+        assert "<h2" in result and "fastapi.Depends" in result
+        assert "First paragraph about Depends" in result
+        assert "Signature table" in result
+        assert "def Depends()" in result
+        assert "fastapi.Security" not in result
+        assert "Security section content" not in result
+
+    def test_heading_section_stops_at_higher_rank_heading(self):
+        html = """
+        <html><body>
+          <h2 id="section">Section</h2>
+          <p>Section intro.</p>
+          <h3 id="subsection">Subsection</h3>
+          <p>Subsection body that belongs to the section.</p>
+          <h1 id="top-level">Next top-level part</h1>
+          <p>Top-level content.</p>
+        </body></html>
+        """
+        result = extract_section(html, "section")
+        assert "Section intro" in result
+        # Lower-rank headings (h3) and their content are included
+        assert "Subsection" in result
+        assert "Subsection body that belongs to the section" in result
+        # Higher-rank heading terminates the section
+        assert "Next top-level part" not in result
+        assert "Top-level content" not in result
+
+    def test_heading_section_runs_to_end_of_container(self):
+        html = """
+        <html><body>
+          <div class="main">
+            <h2 id="last-heading">Last heading</h2>
+            <p>Only paragraph.</p>
+            <div><p>Nested trailing block.</p></div>
+          </div>
+          <div class="other">
+            <h2 id="other-heading">Other heading</h2>
+            <p>Other content.</p>
+          </div>
+        </body></html>
+        """
+        result = extract_section(html, "last-heading")
+        assert "<h2" in result and "Last heading" in result
+        assert "Only paragraph" in result
+        assert "Nested trailing block" in result
+        # Section ends at the parent container boundary
+        assert "Other heading" not in result
+        assert "Other content" not in result
