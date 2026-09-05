@@ -15,7 +15,7 @@ mcp-name: io.github.Kapeli/dash-mcp-server
 The Dash MCP server provides tools for accessing and searching documentation directly from Dash, the macOS documentation browser. MCP clients can:
 
 - List installed docsets
-- Search across docsets and code snippets
+- Search across docsets and code snippets, by docset name or by identifier
 - Load documentation pages from search results
 - Enable full-text search for specific docsets
 
@@ -27,11 +27,21 @@ This is a work in progress. Any suggestions are welcome!
 
 1. **list_installed_docsets**
    - Lists all installed documentation sets in Dash
-2. **search_documentation**
-   - Searches across docsets and snippets
-3. **load_documentation_page**
-   - Loads a documentation page from a `load_url` returned by `search_documentation`
-4. **enable_docset_fts**
+   - Optional `filter`: a case-insensitive substring matched against each docset's name,
+     platform and identifier, so `filter="python"` finds the Python docsets without
+     fetching all of them. Omit it for the full list. When nothing matches, `suggestions`
+     carries the closest names instead — `"sqlachemy"` comes back with SQLAlchemy
+2. **search_documentation_by_filter**
+   - Searches the docsets matching a name you already know — `"python"`, `"rust"`,
+     `"postgres"` — so no identifier lookup is needed first. Usually the one you want
+   - `searched_docsets` names what the filter resolved to, so a filter that matched more
+     or fewer docsets than intended is visible rather than silent. A filter that matches
+     nothing searches nothing and says what was close, rather than guessing
+3. **search_documentation**
+   - Searches across docsets and snippets, given explicit docset identifiers
+4. **load_documentation_page**
+   - Loads a documentation page from a `load_url` returned by either search tool
+5. **enable_docset_fts**
    - Enables full-text search for a specific docset
 
 ## Requirements
