@@ -214,6 +214,26 @@ class SearchResults(BaseModel):
     )
 
 
+class FtsResult(BaseModel):
+    """Outcome of a request to enable full-text search for a docset."""
+
+    enabled: bool = Field(
+        description="True if full-text search is on for this docset after the call, "
+        "whether it was already on or has just been switched on"
+    )
+    identifier: str = Field(description="The docset identifier the call was made for")
+    message: Optional[str] = Field(
+        description="Dash's own account of what happened, e.g. that indexing has started "
+        "or that full-text search was already enabled",
+        default=None,
+    )
+    error: Optional[str] = Field(
+        description="Why the call failed: an unknown identifier and a docset that does "
+        "not support full-text search say so distinctly",
+        default=None,
+    )
+
+
 class DocumentationPage(BaseModel):
     """Documentation page content."""
 
@@ -232,6 +252,22 @@ def html_to_text(html: str) -> str:
     h.body_width = 0
     h.unicode_snob = True
     return h.handle(html)
+
+
+def dash_error_message(body: str) -> str:
+    """Pull the human-readable reason out of a Dash API error page.
+
+    Dash answers a failed request with a small HTML page whose <h1> reads
+    "HTTP Error 400: Full-text search is not supported for this docset". Passing that
+    markup on verbatim buries the one sentence a caller needs, so return just the reason.
+    Anything that is not such a page comes back unchanged.
+    """
+    heading = BeautifulSoup(body, "html.parser").find("h1")
+    if heading is None:
+        return body
+    text = heading.get_text(strip=True)
+    _, separator, reason = text.partition(": ")
+    return reason if separator else text
 
 
 def parse_fragment(load_url: str) -> Optional[str]:
@@ -516,7 +552,7 @@ async def search_documentation(
 
 
 @mcp.tool()
-async def enable_docset_fts(ctx: Context, identifier: str) -> bool:
+async def enable_docset_fts(ctx: Context, identifier: str) -> FtsResult:
     """
     Enable full-text search for a specific docset.
 
@@ -524,16 +560,26 @@ async def enable_docset_fts(ctx: Context, identifier: str) -> bool:
         identifier: The docset identifier (from list_installed_docsets)
 
     Returns:
-        True if FTS was successfully enabled, False otherwise
+        Whether full-text search is on for the docset, together with Dash's own message —
+        indexing started, or already enabled — or the reason it could not be enabled, which
+        distinguishes an unknown identifier from a docset that does not support it.
     """
     if not identifier.strip():
         await ctx.error("Docset identifier cannot be empty")
-        return False
+        return FtsResult(
+            enabled=False,
+            identifier=identifier,
+            error="Docset identifier cannot be empty",
+        )
 
     try:
         base_url = await working_api_base_url(ctx)
         if base_url is None:
-            return False
+            error = (
+                "Failed to connect to Dash API Server. Please ensure Dash is running and "
+                "the API server is enabled (in Dash Settings > Integration)."
+            )
+            return FtsResult(enabled=False, identifier=identifier, error=error)
 
         await ctx.debug(f"Enabling FTS for docset: {identifier}")
 
@@ -545,18 +591,25 @@ async def enable_docset_fts(ctx: Context, identifier: str) -> bool:
             result = response.json()
 
     except httpx.HTTPStatusError as e:
-        if e.response.status_code == 400:
-            await ctx.error(f"Bad request: {e.response.text}")
-            return False
-        elif e.response.status_code == 404:
-            await ctx.error(f"Docset not found: {identifier}")
-            return False
-        await ctx.error(f"HTTP error: {e}")
-        return False
+        # Dash puts the actual reason in the body of an HTML error page. A 400 covers both
+        # a missing identifier and a docset whose format has no full-text index, and only
+        # that sentence tells the two apart.
+        reason = dash_error_message(e.response.text)
+        if e.response.status_code == 404 and not reason:
+            reason = f"Docset not found: {identifier}"
+        if not reason:
+            reason = f"HTTP error: {e}"
+        await ctx.error(reason)
+        return FtsResult(enabled=False, identifier=identifier, error=reason)
     except Exception as e:
         await ctx.error(f"Failed to enable FTS: {e}")
-        return False
-    return True
+        return FtsResult(
+            enabled=False, identifier=identifier, error=f"Failed to enable FTS: {e}"
+        )
+
+    message = result.get("message") if isinstance(result, dict) else None
+    await ctx.info(message or f"Full-text search enabled for {identifier}")
+    return FtsResult(enabled=True, identifier=identifier, message=message)
 
 
 @mcp.tool()

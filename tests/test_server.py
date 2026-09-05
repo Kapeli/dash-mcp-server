@@ -1,4 +1,13 @@
-from dash_mcp_server.server import parse_fragment, extract_section
+import asyncio
+
+import httpx
+
+from dash_mcp_server import server
+from dash_mcp_server.server import (
+    dash_error_message,
+    extract_section,
+    parse_fragment,
+)
 
 
 class TestParseFragment:
@@ -82,3 +91,119 @@ class TestExtractSection:
         # No suitable block parent, so falls back to nav-stripping
         assert "<nav>" not in result
         assert "Content with no block wrapper" in result
+
+
+class TestDashErrorMessage:
+    def test_reads_the_reason_out_of_a_dash_error_page(self):
+        html = (
+            '<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">'
+            "<title>HTTP Error 400</title></head><body>"
+            "<h1>HTTP Error 400: Full-text search is not supported for this docset</h1>"
+            "<h3></h3></body></html>"
+        )
+        assert dash_error_message(html) == "Full-text search is not supported for this docset"
+
+    def test_falls_back_to_the_raw_text_when_it_is_not_a_dash_error_page(self):
+        assert dash_error_message("something else entirely") == "something else entirely"
+
+    def test_handles_an_empty_body(self):
+        assert dash_error_message("") == ""
+
+
+class FakeContext:
+    """Minimal stand-in for the MCP Context: records what the tool reported."""
+
+    def __init__(self):
+        self.messages = []
+
+    async def debug(self, message):
+        self.messages.append(("debug", message))
+
+    async def info(self, message):
+        self.messages.append(("info", message))
+
+    async def warning(self, message):
+        self.messages.append(("warning", message))
+
+    async def error(self, message):
+        self.messages.append(("error", message))
+
+
+class FakeResponse:
+    def __init__(self, payload=None, status_code=200, text=""):
+        self._payload = payload
+        self.status_code = status_code
+        self.text = text
+
+    def raise_for_status(self):
+        if self.status_code >= 400:
+            raise httpx.HTTPStatusError("error", request=None, response=self)
+
+    def json(self):
+        return self._payload
+
+
+class FakeClient:
+    def __init__(self, response):
+        self._response = response
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+    def get(self, url, **kwargs):
+        return self._response
+
+
+class TestEnableDocsetFts:
+    def _enable(self, monkeypatch, response, identifier="python"):
+        async def fake_base_url(ctx):
+            return "http://127.0.0.1:1234"
+
+        monkeypatch.setattr(server, "working_api_base_url", fake_base_url)
+        monkeypatch.setattr(server.httpx, "Client", lambda *a, **kw: FakeClient(response))
+        ctx = FakeContext()
+        return asyncio.run(server.enable_docset_fts(ctx, identifier)), ctx
+
+    def test_a_fresh_enable_reports_success_and_keeps_dash_message(self, monkeypatch):
+        response = FakeResponse({"message": "Full-text search indexing has started"})
+        result, _ = self._enable(monkeypatch, response)
+        assert result.enabled is True
+        assert result.identifier == "python"
+        assert "indexing has started" in result.message
+        assert result.error is None
+
+    def test_already_enabled_is_distinguishable_from_a_fresh_enable(self, monkeypatch):
+        response = FakeResponse(
+            {"message": "Full-text search is already enabled for this docset"}
+        )
+        result, _ = self._enable(monkeypatch, response)
+        assert result.enabled is True
+        assert "already enabled" in result.message
+
+    def test_unsupported_docset_says_so_instead_of_just_false(self, monkeypatch):
+        response = FakeResponse(
+            status_code=400,
+            text="<html><body><h1>HTTP Error 400: Full-text search is not supported "
+            "for this docset</h1></body></html>",
+        )
+        result, _ = self._enable(monkeypatch, response)
+        assert result.enabled is False
+        assert result.error == "Full-text search is not supported for this docset"
+
+    def test_unknown_docset_is_distinguishable_from_an_unsupported_one(self, monkeypatch):
+        response = FakeResponse(
+            status_code=404,
+            text="<html><body><h1>HTTP Error 404: Docset not found</h1></body></html>",
+        )
+        result, _ = self._enable(monkeypatch, response)
+        assert result.enabled is False
+        assert "not found" in result.error.lower()
+        assert "not supported" not in result.error.lower()
+
+    def test_an_empty_identifier_is_rejected_before_any_request(self, monkeypatch):
+        result, ctx = self._enable(monkeypatch, FakeResponse({}), identifier="  ")
+        assert result.enabled is False
+        assert "identifier" in result.error
